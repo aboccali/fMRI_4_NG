@@ -1,0 +1,68 @@
+#$ -S /bin/bash
+#$ -e /media/NG/sge_logs/
+#$ -o /media/NG/sge_logs/
+
+export FSLDIR=/usr/share/fsl/6.0
+. /usr/share/fsl/6.0/etc/fslconf/fsl.sh
+
+export PATH=$PATH:/opt/Shared_Software/R2016b/bin
+
+export SPMDIR="/media/NG/spm_mcr/spm_exec_v84"
+export MCRROOT="/media/NG/MCR/v84"
+export PATH="$PATH:/usr/lib64"
+export SPM_LST=/opt/Shared_Software/R2016b/toolbox/spm12/toolbox/LST
+
+subj=${1}
+method=${2}
+
+
+mkdir /media/NG/sandbox/aboccali/fMRI_4_NG/
+mkdir /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis
+mkdir /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026
+mkdir /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}
+
+cp /media/NG/uploads/openNEURO_005026/${subj}/${subj}_ses-01_T1w.nii.gz /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_T13D.nii.gz
+cp /media/NG/uploads/openNEURO_005026/${subj}/${subj}_ses-01_task-rest_dir-AP_bold.nii.gz /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_rsfMRI.nii.gz
+cp /media/NG/uploads/openNEURO_005026/${subj}/${subj}_ses-01_task-rest_dir-AP_bold.json /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_rsfMRI_VR_reor.json
+
+# Ottieni il numero totale di volumi (dim4)
+dim4=$(fslval /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_rsfMRI.nii.gz dim4)
+
+# Calcola il numero di volumi rimanenti (dim4 - 5)
+remaining_volumes=$((dim4 - 5))
+
+# Usa fslroi per rimuovere i primi 5 volumi
+fslroi /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_rsfMRI.nii.gz /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_rsfMRI_VR.nii.gz 5 $remaining_volumes
+
+fslreorient2std /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_T13D.nii.gz /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_T13D_reor.nii.gz
+fslreorient2std /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_rsfMRI_VR.nii.gz /media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_rsfMRI_VR_reor.nii.gz
+
+echo "
+addpath(genpath('/opt/Shared_Software/R2016b/toolbox/conn21a'));
+% SETUP
+clear CONN_x;
+conn_file = ['/media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/Results.mat'];
+CONN_x.filename = conn_file;
+CONN_x.Setup.isnew = 1;
+CONN_x.Setup.functionals{1}{1}=['/media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_rsfMRI_VR_reor.nii.gz'];
+CONN_x.Setup.structurals{1}=['/media/NG/sandbox/aboccali/fMRI_4_NG/CONN_analysis/openNEURO_005026/${subj}/${subj}_T13D_reor.nii.gz'];
+CONN_x.Setup.nsubjects=1;
+CONN_x.Setup.preprocessing.steps='default_mni';
+CONN_x.Setup.preprocessing.sliceorder='${method}';
+CONN_x.Setup.done = 1;
+
+CONN_x.Denoising.done = 1;
+
+CONN_x.Analysis.done = 1;
+CONN_x.Analysis.type = 1; %ROI-to-ROI
+CONN_x.Analysis.name='Results';
+CONN_x.Analysis.sources={'networks.DefaultMode','networks.SensoriMotor','networks.Visual','networks.Salience','networks.DorsalAttention','networks.FrontoParietal','networks.Language','networks.Cerebellar'}
+
+CONN_x.QA.plots = {'QA_NORM structural', 'QA_NORM functional', 'QA_NORM rois', 'QA_REG functional', 'QA_REG structural', 'QA_REG mni', 'QA_COREG functional', 'QA_TIME functional', 'QA_TIMEART functional', 'QA_DENOISE histogram', 'QA_DENOISE timeseries', 'QA_DENOISE FC-QC', 'QA_DENOISE scatterplot', 'QA_SPM design', 'QA_SPM contrasts' ,'QA_SPM results', 'QA_COV'}
+
+% Running the batch
+conn_batch(CONN_x);
+" > CONN_job.m
+
+
+/opt/Shared_Software/R2016b/bin/matlab -nodesktop -nosplash -r "CONN_job" -softwareopengl
